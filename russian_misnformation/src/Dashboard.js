@@ -1,60 +1,102 @@
-import React, { Component } from 'react'
+import React, {Component} from 'react'
 import moment from 'moment'
 import expandUrl from './utils/expandUrl'
+import TopNTable from "./components/TopNTable";
+
+console.log('Top',TopNTable)
 
 export default class Dashboard extends Component {
 
-  getLatestTweets = () => {
-    return fetch('http://0.0.0.0:5000/')
-      .then((response) => response.json())
-      .then((responseJson) => {
-        console.log('RESPONSE JSON: ', responseJson)
-        return responseJson
-      })
-      .catch((error) => {
-        alert('Turn on Python or check CORS!')
-        console.error(error);
-      });
-  }
+    constructor(){
+        super()
+        this.state = {
+            tweetUrls: [],
+        }
+    }
 
-  yesterdayTweetsWithUrls = () => {
-    const today = new Date()
-    const yest = today.setDate(today.getDate() - 12);
-    const yesterday = moment(yest).format("YYYY/MM/DD")
+    getAllTweets = (url) => {
+        return fetch(url)
+            .then((response) => response.json())
+            .then((responseJson) => {
+                console.log('RESPONSE JSON: ', responseJson)
+                return responseJson
+            })
+            .catch((error) => {
+                alert('Turn on Python or check CORS!')
+                console.error(error);
+            });
+    }
 
-    return this.getLatestTweets()
-    .then(tweets => {
-      return tweets.filter(t => {
-        const parsedTweetDate = Date.parse(t.created_at)
-        const tweetDate = moment(parsedTweetDate).format("YYYY/MM/DD")
-        return tweetDate === yesterday && t.urls.length > 0
-      })
-      .map(t => t.urls.map(url => url.fully_expanded_url2))
-    })
-  }
+    filterByNDaysAgo = (daysAgo, data) => {
+        // note follows strict url JSON structure
+        const today = new Date()
+        const yest = today.setDate(today.getDate() - daysAgo);
+        const yesterday = moment(yest).format("YYYY/MM/DD")
 
-  urlFrequency = (urls) => {
-    return urls.reduce((obj, str) => {
-      if(obj[str[0]]){
-        obj[str[0]]++
-        return obj
-      }else{
-        obj[str[0]] = 1
-        return obj
-      }
-    }, {})
-  }
+        return data.filter(t => {
+                    const parsedTweetDate = Date.parse(t.created_at)
+                    const tweetDate = moment(parsedTweetDate).format("YYYY/MM/DD")
+                    return tweetDate === yesterday && t.urls.length > 0
+                })
+            .map(t => t.urls.map(url => url.fully_expanded_url2))
+    }
 
-  render() {
-    const urls = this.yesterdayTweetsWithUrls()
-    .then(urls => {
-      console.log('RESULT HERE', this.urlFrequency(urls))
-    })
+    urlFrequency = (urls) => {
+        return urls.reduce((obj, str) => {
+            if (obj[str[0]]) {
+                obj[str[0]]++
+                return obj
+            } else {
+                obj[str[0]] = 1
+                return obj
+            }
+        }, {})
+    }
 
-    return (
-      <div>
-        <h1>Dashboard</h1>
-      </div>
-    )
-  }
+    sortUrls = (urls) => {
+        let sortable = [];
+        for (let url in urls) {
+            sortable.push([url, urls[url]]);
+        }
+
+        sortable.sort(function (a, b) {
+            return b[1] - a[1];
+        });
+
+        return sortable
+    }
+
+    getSortedAndFilteredBydateTweets = () => {
+        this.getAllTweets('http://0.0.0.0:5000/')
+            .then(tweets =>{
+                return this.filterByNDaysAgo(12, tweets)
+            })
+            .then(urls => {
+                const urlCount = this.urlFrequency(urls)
+                const sortedUrls = this.sortUrls(urlCount)
+                this.setState({tweetUrls: sortedUrls})
+            })
+    }
+
+
+    componentDidMount = () => {
+       this.getSortedAndFilteredBydateTweets()
+    }
+
+
+    render() {
+
+        return (
+            <div>
+                <h1>Dashboard</h1>
+
+                { this.state.tweetUrls.length > 0 &&
+                    <TopNTable
+                        data={this.state.tweetUrls}
+                        type="Url"
+                        amount={10}/>
+                }
+            </div>
+        )
+    }
 }
