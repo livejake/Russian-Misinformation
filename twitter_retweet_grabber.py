@@ -1,128 +1,105 @@
-import twitter
+import tweepy
 import pandas as pd
 import itertools
-from pymongo import MongoClient
+import pymongo
 import logging
-
-mongo = MongoClient().twitter
-mongo.posts.ensure_index([('id', 1)], unique=True)
-logging.basicConfig(filename='example.log',level=logging.DEBUG)
-
-tokens = [line.strip() for line in open('tokens.txt','r')]
-TOKENS = itertools.cycle([x.split("|") for x in tokens])
-
-def set_api(TOKENS):
-  token = next(TOKENS)
-  # print(token)
-  api = twitter.Api(consumer_key=token[0],
-    consumer_secret=token[1],
-    access_token_key=token[2],
-    access_token_secret=token[3])
-  return api 
-
-api =set_api(TOKENS)
-
-data = {}
-max_id = None
-total = 0
-while True:
-  try:
-      api =set_api(TOKENS)
-      statuses = api.GetUserTimeline(screen_name='SputnikNewsUS', count=200, max_id=max_id)
-  except:
-      print "Gateway error... trying again"
-      time.sleep(20)
-      api =set_api(TOKENS)
-      statuses = api.GetUserTimeline(screen_name='SputnikNewsUS',  count=200, max_id=max_id)
-      continue
-  time.sleep(5)
-  newCount = ignCount = 0
-  for s in statuses:
-      if s.id in data:
-          ignCount += 1
-      else:
-          data[s.id] = s
-          newCount += 1
-  total += newCount
-  userTweetData = data.values()
-  # if total<=200:
-  #     break
-  print >> sys.stderr, "Fetched %d/%d/%d new/old/total." % (newCount, ignCount, total)
-  if newCount == 0:
-    break
-  max_id = min([s.id for s in statuses]) - 1
-
-# api = set_api(TOKENS)
-# statuses = api.GetUserTimeline(screen_name='SputnikNewsUS',count=200)
-
-status_ids = data.keys()
-collection = mongo.posts
-for tweet_id in status_ids:
-  api = set_api(TOKENS)
-  try:
-    for retweet in api.GetRetweets(statusid=tweet_id,count=100):
-        if collection.find({'id': retweet.id}, {'_id': 1}).limit(1).count():
-          print("STOPPPED DUP")
-          logging.info('in db post_id = {}'.format(_id))
-          continue # print(retweet)
-        collection.insert(retweet.AsDict(),check_keys=False)
-  except:
-    # time.sleep(3600)
-    api = set_api(TOKENS)
-    for retweet in api.GetRetweets(statusid=tweet_id,count=100):
-      if collection.find({'id': retweet.id}, {'_id': 1}).limit(1).count():
-        print("STOPPPED DUP")
-        logging.info('in db post_id = {}'.format(_id))
-        continue # print(retweet)
-      collection.insert(retweet.AsDict(),check_keys=False)
-
-user_info =[]
-for retweet in retweets:
-  if hasattr(retweet, 'user'):
-    user_info.append([retweet.user.screen_name]) 
-    print(retweet.user.screen_name)
-
-
-
-data=pd.DataFrame.from_records(user_info)
-
-
-### GET TOP TWITTER NAMES 
-
-
-pipeline = [
-        {
-            "$group": {
-                "_id": "$user.screen_name",
-                "count": {
-                    "$sum": 1
-                }
-
-            }
-        },
-        {
-            "$sort": {
-                "count": -1
-            }
-        },
-        {
-            "$limit": 25
-        }
-
-    ]
-
-top_twitter_usernames =[] 
-for result in collection.aggregate(pipeline):
-  top_twitter_usernames.append(result['_id'])
-
-latest_tweets = mongo.latest_tweets
-for name in top_twitter_usernames:
-  api = set_api(TOKENS)
-  for tweet in api.GetUserTimeline(screen_name=name, count=10):
-    latest_tweets.insert(tweet.AsDict())
-
 from http import client
 import urllib
+
+
+
+
+def set_api():
+    """
+    Sets Up Authenticated API Session With Next 
+    set of Tokens  
+    TODO: Figure out if rather than sending tokens and authenticated each time. 
+    Authenticate all, then send next better. 
+    """
+    token = next(TOKENS)
+    auth = tweepy.OAuthHandler(token[0], token[1])
+    auth.set_access_token(token[2], token[3])
+    api = tweepy.API(auth,wait_on_rate_limit=True,
+                 wait_on_rate_limit_notify=True)
+    return api 
+
+
+def get_all_tweets(username,collection):
+    """
+    Gets last 3200 Tweets (max allowed) from a username 
+    """
+    api = set_api()
+    for tweet in tweepy.Cursor(api.user_timeline,screen_name=username).items():
+        # process status here
+        insert_tweet(tweet,collection)
+
+
+def insert_tweet(tweet, collection):
+    """
+    Checks if Tweet with same id in collection.
+    Inserts tweet into Mongo collection
+    """
+    if collection.find({"id":tweet.id}).count()>0:
+       print("already saved")
+    else:
+       post_id = collection.insert(tweet._json)
+       print("Inserted ",post_id)
+
+
+def process_retweets(tweet_id):
+  """
+  Gets users who retweet at tweet and insert into 
+  Mongo 
+  """
+  api = set_api()
+  for tweet in api.retweets(id=tweet_id):
+    insert_tweet(tweet, retweets_collection)
+
+def get_retweets_from_timeline():
+  """
+  Gets tweets with retweets from mongo 
+  and processes each tweet 
+  """
+  ## TODO invesigate cursor timeout 
+  for tweet in user_timeline_collection.find({"retweet_count":{"$gte":1}},no_cursor_timeout=True):
+    process_retweets(tweet['id'])
+
+
+def get_top_n_retweeters(n,collection):
+    """ 
+    Gets the top N retweeters from Mongo 
+    """
+
+    pipeline = [
+             {
+                 "$group": {
+                     "_id": "$user.screen_name",
+                     "count": {
+                         "$sum": 1
+                     }
+                 }
+             },
+             {
+                 "$sort": {
+                     "count": -1
+                 }
+             },
+             {
+                 "$limit": n
+             }
+     
+         ]
+    return [result['_id'] for result in collection.aggregate(pipeline)]
+
+
+def get_all_tweets_from_retweeters(n,collection):
+    """
+    For each user for the top N retweets, get their full timeline 
+    """
+    for username in get_top_n_retweeters(n,collection):
+        get_all_tweets(username,retweeter_tweets)
+
+
 def unshorten_url(url):
     parsed = urllib.parse.urlparse(url)
     h = client.HTTPConnection(parsed.netloc)
@@ -137,18 +114,47 @@ def unshorten_url(url):
         return url
 
 
+def expand_url_update(current_url, expanded_url,collection):
+    for tweet in collection.find():
+        if len(tweet['urls'])>0:
+            for i,url in enumerate(tweet['urls']):
+                tweet['urls'][i][expanded_url] = unshorten_url(url[current_url])
+                collection.update_one({'_id':tweet['_id']}, {"$set": tweet}, upsert=False)
+
+def double_expand_urls(collection):
+  expand_url_update("expanded_url", "fully_expanded_url",collection)
+  expand_url_update("fully_expanded_url", "fully_expanded_url2",collection)
 
 
+if __name__ == "__main__":
+    client = pymongo.MongoClient('localhost', 27017)
+    db = client.twitter
+    user_timeline_collection = db.user_timeline
+    retweets_collection = db.retweets
+    retweeter_tweets = db.retweeter_tweets
+    user_timeline_collection.ensure_index([('id', 1)], unique=True)
+    retweets_collection.ensure_index([('id', 1)], unique=True)
+    retweeter_tweets.ensure_index([('id', 1)], unique=True)
+    logging.basicConfig(filename='example.log',level=logging.DEBUG)
+    tokens = [line.strip() for line in open('tokens.txt','r')]
+    TOKENS = itertools.cycle([x.split("|") for x in tokens])
 
-def expand_url_update(current_url, expanded_url):
-  for tweet in latest_tweets.find():
-  if len(tweet['urls'])>0:
-    for i,url in enumerate(tweet['urls']):
-      tweet['urls'][i][expanded_url] = unshorten_url(url[current_url])
-      latest_tweets.update_one({'_id':tweet['_id']}, {"$set": tweet}, upsert=False
-        
-expand_url_update("expanded_url", "fully_expanded_url")
-expand_url_update("fully_expanded_url", "fully_expanded_url2")
+    # MAIN LOGIC 
+    # Get last 3200 tweets from Russian propaganda outlets 
+    usernames = ['SputnikNewsUS']
+    for username in usernames:
+      get_all_tweets(username, user_timeline_collection)
+    # For each tweet, get all the retweets
+    get_retweets_from_timeline()
+    # For the top reweeters, get all their tweets
+
+    get_all_tweets_from_retweeters(1000,retweets_collection)
+    
+    #For all the top retweeter_tweets, double expand (unshorten twice)
+    #each url 
+    double_expand_urls(retweeter_tweets)
+
+
 
 
 
