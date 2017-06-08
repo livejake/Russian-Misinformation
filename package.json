@@ -8,12 +8,22 @@
     "react-dom": "^15.5.4"
   },
   "devDependencies": {
+    "husky": "^0.13.4",
+    "lint-staged": "^3.6.0",
+    "prettier": "^1.4.4",
     "react-scripts": "1.0.1"
   },
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test --env=jsdom",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "precommit": "lint-staged"
+  },
+  "lint-staged": {
+    "*.js": [
+      "prettier --write",
+      "git add"
+    ]
   }
 }
