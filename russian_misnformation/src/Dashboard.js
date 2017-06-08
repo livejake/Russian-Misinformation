@@ -1,5 +1,6 @@
 import React, {Component} from 'react'
 import moment from 'moment'
+import expandUrl from './utils/expandUrl'
 import TopNTable from "./components/TopNTable";
 
 console.log('Top',TopNTable)
@@ -35,9 +36,9 @@ export default class Dashboard extends Component {
         return data.filter(t => {
                     const parsedTweetDate = Date.parse(t.created_at)
                     const tweetDate = moment(parsedTweetDate).format("YYYY/MM/DD")
-                    return tweetDate === yesterday && t.entities.urls.length > 0
+                    return tweetDate === yesterday && t.urls.length > 0
                 })
-            .map(t => t.entities.urls.map(url => url.expanded_url))
+            .map(t => t.urls.map(url => url.fully_expanded_url2))
     }
 
     urlFrequency = (urls) => {
@@ -68,11 +69,9 @@ export default class Dashboard extends Component {
     getSortedAndFilteredBydateTweets = () => {
         this.getAllTweets('http://0.0.0.0:5000/')
             .then(tweets =>{
-                console.log('tweets',tweets)
-                return this.filterByNDaysAgo(3, tweets)
+                return this.filterByNDaysAgo(12, tweets)
             })
             .then(urls => {
-                console.log('urls',urls)
                 const urlCount = this.urlFrequency(urls)
                 const sortedUrls = this.sortUrls(urlCount)
                 this.setState({tweetUrls: sortedUrls})
