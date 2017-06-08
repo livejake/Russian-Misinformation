@@ -2,13 +2,13 @@ from flask import Flask,json
 import pymongo
 from pymongo import MongoClient
 mongo = MongoClient().twitter
-collection = mongo.latest_tweets
+collection = mongo.retweeter_tweets
 
 app = Flask(__name__)
 
 @app.route("/")
 def hello():
-    tweets = list(collection.find({}))
+    tweets = list(collection.find( { "entities.urls.expanded_url": { "$exists": "true"} }).limit(25000))
     for tweet in tweets:
       del tweet["_id"]
 
